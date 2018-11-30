@@ -1,5 +1,8 @@
 This is a simple, baseline system that does well on the question answering task "quiz bowl".  This system generates the baseline score on our leaderboard and demonstrates the IO profile we expect of Docker container submission.
 
+# Start
+1. download all datas into `data/` and `src/data/`
+2. put `full_model.pkl` into `src/`
 
 # Reference System
 
