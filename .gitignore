@@ -1,6 +1,10 @@
 src/predictions.json
 src/scores.json
+src/wiki_lookup.json
+src/full_model.bin
+src/full_model.pkl
 data/*
+src/data/*
 models/*
 *.pickle
 # Byte-compiled / optimized / DLL files

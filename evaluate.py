@@ -11,6 +11,7 @@ import logging
 import socket
 import errno
 from tqdm import tqdm
+import nltk
 
 
 elog = logging.getLogger('eval')
@@ -78,11 +79,14 @@ def retry_get_url(url, retries=5, delay=3):
     return None
 
 
-def get_question_query(qid, question, char_idx):
+def get_question_query(qid, question, char_idx, sent_idx):
     char_idx = min(char_idx, len(question['text']))
+    '''
     for sent_idx, (st, ed) in enumerate(question['tokenizations']):
         if char_idx >= st and char_idx <= ed:
             break
+    '''
+    #print(qid, char_idx, question['text'][:char_idx])
     query = {
             'question_idx': qid,
             'sent_index': sent_idx,
@@ -98,10 +102,16 @@ def get_answer_single(url, questions, char_step_size):
     for question_idx, q in enumerate(tqdm(questions)):
         elog.info(f'Running question_idx={question_idx} qnum={q["qanta_id"]}')
         answers.append([])
-        # get an answer every K characters
-        for char_idx in range(1, len(q['text']) + char_step_size,
-                              char_step_size):
-            query = get_question_query(question_idx, q, char_idx)
+        length_array = []
+        text = ""
+        char_idx = 0
+        for s in nltk.sent_tokenize(q['text']):
+            char_idx += len(s)
+            text += s
+            length_array.append(char_idx)
+        q['text'] = text
+        for i in range(len(length_array)):
+            query = get_question_query(question_idx, q, length_array[i], i)
             resp = requests.post(url, json=query).json()
             query.update(resp)
             answers[-1].append(query)
@@ -118,16 +128,31 @@ def get_answer_batch(url, questions, char_step_size, batch_size):
         max_len = max(len(q['text']) for q in qs)
         qids = list(range(batch_idx, batch_ed))
         answers += [[] for _ in qs]
-        for char_idx in range(1, max_len + char_step_size, char_step_size):
+        query = {'questions': []}
+        length_array = []
+        max_sentences = 0
+        for i, q in enumerate(qs):
+            length_array.append([])
+            char_idx = 0
+            text = ""
+            cnt = 0
+            for s in nltk.sent_tokenize(q['text']):
+                char_idx += len(s)
+                text += s
+                length_array[-1].append(char_idx)
+            qs[i]['text'] = text
+            max_sentences = max(max_sentences, len(length_array[-1]))
+        for idx in range(max_sentences):
             query = {'questions': []}
             for i, q in enumerate(qs):
-                query['questions'].append(
-                    get_question_query(qids[i], q, char_idx))
+                if idx < len(length_array[i]):
+                    query['questions'].append(
+                        get_question_query(qids[i], q, length_array[i][idx], idx))
             resp = requests.post(url, json=query).json()
             for i, r in enumerate(resp):
                 q = query['questions'][i]
                 q.update(r)
-                answers[qids[i]].append(q)
+                answers[q['question_idx']].append(q)
     return answers
 
 
@@ -184,6 +209,7 @@ def evaluate(input_dir, output_dir, score_dir, char_step_size, hostname,
         ew = []
         ew_opt = []
         for question_idx, guesses in enumerate(answers):
+            print(len(guesses))
             question = questions[question_idx]
             answer = question['page']
             first_guess = None
@@ -191,8 +217,12 @@ def evaluate(input_dir, output_dir, score_dir, char_step_size, hostname,
                 if g['sent_index'] == 1:
                     first_guess = g['guess']
                     break
-            first_acc.append(first_guess == answer)
-            end_acc.append(guesses[-1]['guess'] == answer)
+            if(type(first_guess) == list):
+                first_acc.append(answer in first_guess)
+                end_acc.append(answer in guesses[-1]['guess'])
+            else:
+                first_acc.append(first_guess == answer)
+                end_acc.append(guesses[-1]['guess'] == answer)
             ew.append(curve_score.score(guesses, question))
             ew_opt.append(curve_score.score_optimal(guesses, question))
         eval_out = {
