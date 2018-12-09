@@ -80,8 +80,9 @@ def retry_get_url(url, retries=5, delay=3):
 
 
 def get_question_query(qid, question, char_idx, sent_idx):
-    char_idx = min(char_idx, len(question['text']))
+#def get_question_query(qid, question, char_idx):
     '''
+    char_idx = min(char_idx, len(question['text']))
     for sent_idx, (st, ed) in enumerate(question['tokenizations']):
         if char_idx >= st and char_idx <= ed:
             break
@@ -102,6 +103,16 @@ def get_answer_single(url, questions, char_step_size):
     for question_idx, q in enumerate(tqdm(questions)):
         elog.info(f'Running question_idx={question_idx} qnum={q["qanta_id"]}')
         answers.append([])
+        
+        '''
+        # get an answer every K characters
+        for char_idx in range(1, len(q['text']) + char_step_size,
+                              char_step_size):
+            query = get_question_query(question_idx, q, char_idx)
+            resp = requests.post(url, json=query).json()
+            query.update(resp)
+            answers[-1].append(query)
+        '''
         length_array = []
         text = ""
         char_idx = 0
@@ -128,6 +139,26 @@ def get_answer_batch(url, questions, char_step_size, batch_size):
         max_len = max(len(q['text']) for q in qs)
         qids = list(range(batch_idx, batch_ed))
         answers += [[] for _ in qs]
+
+        '''
+        batch_ids = list(range(0, len(questions), batch_size))
+        for batch_idx in tqdm(batch_ids):
+            batch_ed = min(len(questions), batch_idx + batch_size)
+            qs = questions[batch_idx: batch_ed]
+            max_len = max(len(q['text']) for q in qs)
+            qids = list(range(batch_idx, batch_ed))
+            answers += [[] for _ in qs]
+            for char_idx in range(1, max_len + char_step_size, char_step_size):
+                query = {'questions': []}
+                for i, q in enumerate(qs):
+                    query['questions'].append(
+                        get_question_query(qids[i], q, char_idx))
+                resp = requests.post(url, json=query).json()
+                for i, r in enumerate(resp):
+                    q = query['questions'][i]
+                    q.update(r)
+                    answers[qids[i]].append(q)
+        '''
         query = {'questions': []}
         length_array = []
         max_sentences = 0
