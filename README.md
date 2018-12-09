@@ -42,7 +42,7 @@ In addition to the `question_text` field shown in the `httpie` sample request we
  * `char_idx`: This corresponds on the server to `full_question[0:char_idx]` if `full_question` is the entire question.
  * `sent_idx`: The current sentence number.
  * `text` Question text up to `char_idx`
-
+ 
 ### Example
 
 ```json
@@ -53,6 +53,17 @@ In addition to the `question_text` field shown in the `httpie` sample request we
   "text": "At its premiere, the librettist of this opera portrayed a character who asks for a glass of wine with his dying wish"
 }
 ```
+
+### Optional Wikipedia paragraphs
+ Models can optionally (see the status API below) request providing retrieved Wikipedia paragraphs for each sentence of the questions. In that case,
+one more field, `wiki_paragraphs`, is added to the input. `wiki_paragraphs`
+is a list of the top-10 retrieved paragraphs for each completed
+question sentence. Each paragraph is a dictionary of two items:
+`paragaraph` which contains the paragraph text and `entities` which
+is a list of the extracted entity mentions from the paragraph. Each mention
+is formatted as a list of wikipedia page title, mention start index,
+mention end index, confidence score and wikipedia page id.
+We used [TagME](https://tagme.d4science.org/tagme/) to find the entity mentions.
 
 ## Output Format
 The output answer to each question is also a json object of two fields
@@ -80,7 +91,7 @@ script will return an error.
 * `ready`: return True if ready to accept requests
 * `batch`: True if model accepts batch API (see farther down), False otherwise
 * `batch_size`: If `batch` is true, an integer indicating max batch size
-
+* `include_wiki_paragraphs`: True to request providing retrieved Wikipedia paragraphs for each question sentence.
 
 ## Installation
 
@@ -105,7 +116,7 @@ These commands are structured via `docker-compose CMD CONTAINER ARGS` where
 `CMD` is a `docker-compose` command, `CONTAINER` is either `qb` or `eval`, and
 `ARGS` runs inside of the container.
 
-1. `docker-compose run qb ./cli download`: This will download the training data to `data/`
+1. `docker-compose run qb ./cli download`: This will download the training data to `data/`. Add flag `--retrieve-paragraphs` to download retrieved Wikipedia paragraphs.
 2. `docker-compose run qb ./cli train`: This will train a model and place it in `src/tfidf.pickle`
 3. `docker-compose up`: This will start the web server in the foreground, `-d` for background, `ctrl-c` to stop
 4. `docker-compose run eval`: This will run the evaluation script

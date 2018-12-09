@@ -14,6 +14,7 @@ from tqdm import tqdm
 import nltk
 
 
+
 elog = logging.getLogger('eval')
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 fh = logging.FileHandler('evaluation.log')
@@ -79,25 +80,26 @@ def retry_get_url(url, retries=5, delay=3):
     return None
 
 
-def get_question_query(qid, question, char_idx, sent_idx):
-#def get_question_query(qid, question, char_idx):
-    '''
+def get_question_query(qid, question, char_idx, wiki_paragraphs=False):
     char_idx = min(char_idx, len(question['text']))
+
     for sent_idx, (st, ed) in enumerate(question['tokenizations']):
         if char_idx >= st and char_idx <= ed:
             break
-    '''
-    #print(qid, char_idx, question['text'][:char_idx])
     query = {
             'question_idx': qid,
             'sent_index': sent_idx,
             'char_index': char_idx,
             'text': question['text'][:char_idx]
     }
+    if wiki_paragraphs:
+        query['wiki_paragraphs'] = question['annotated_paras'][:sent_idx]
+
     return query
 
 
-def get_answer_single(url, questions, char_step_size):
+
+def get_answer_single(url, questions, char_step_size, wiki_paragraphs=False):
     elog.info('Collecting responses to questions')
     answers = []
     for question_idx, q in enumerate(tqdm(questions)):
@@ -108,7 +110,7 @@ def get_answer_single(url, questions, char_step_size):
         # get an answer every K characters
         for char_idx in range(1, len(q['text']) + char_step_size,
                               char_step_size):
-            query = get_question_query(question_idx, q, char_idx)
+            query = get_question_query(question_idx, q, char_idx, wiki_paragraphs)
             resp = requests.post(url, json=query).json()
             query.update(resp)
             answers[-1].append(query)
@@ -129,7 +131,7 @@ def get_answer_single(url, questions, char_step_size):
     return answers
 
 
-def get_answer_batch(url, questions, char_step_size, batch_size):
+def get_answer_batch(url, questions, char_step_size, batch_size, wiki_paragraphs=False):
     elog.info('Collecting responses to questions in batches', batch_size)
     answers = []
     batch_ids = list(range(0, len(questions), batch_size))
@@ -152,7 +154,7 @@ def get_answer_batch(url, questions, char_step_size, batch_size):
                 query = {'questions': []}
                 for i, q in enumerate(qs):
                     query['questions'].append(
-                        get_question_query(qids[i], q, char_idx))
+                        get_question_query(qids[i], q, char_idx, wiki_paragraphs))
                 resp = requests.post(url, json=query).json()
                 for i, r in enumerate(resp):
                     q = query['questions'][i]
@@ -218,17 +220,25 @@ def evaluate(input_dir, output_dir, score_dir, char_step_size, hostname,
             elog.warning('Failed to find a running web server beep boop, prepare for RUD')
             raise ValueError('Status API could not be reached')
 
+        if 'include_wiki_paragraphs' in status:
+            include_wiki_paragraphs = status['include_wiki_paragraphs']
+        else:
+            include_wiki_paragraphs = False
+
         with open(input_dir) as f:
             questions = json.load(f)['questions']
+
         if status is not None and status['batch'] is True:
             url = f'http://{hostname}:4861/api/1.0/quizbowl/batch_act'
             answers = get_answer_batch(url, questions,
                                        char_step_size,
-                                       status['batch_size'])
+                                       status['batch_size'],
+                                       wiki_paragraphs=include_wiki_paragraphs)
         else:
             url = f'http://{hostname}:4861/api/1.0/quizbowl/act'
             answers = get_answer_single(url, questions,
-                                        char_step_size)
+                                        char_step_size,
+                                        wiki_paragraphs=include_wiki_paragraphs)
 
         with open(output_dir, 'w') as f:
             json.dump(answers, f)
