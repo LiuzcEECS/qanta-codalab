@@ -119,7 +119,7 @@ def get_answer_batch(url, questions, char_step_size, batch_size, wiki_paragraphs
     elog.info('Collecting responses to questions in batches', batch_size)
     answers = []
     batch_ids = list(range(0, len(questions), batch_size))
-    for batch_idx in (batch_ids):
+    for batch_idx in tqdm(batch_ids):
         batch_ed = min(len(questions), batch_idx + batch_size)
         qs = questions[batch_idx: batch_ed]
         max_len = max(len(q['text']) for q in qs)

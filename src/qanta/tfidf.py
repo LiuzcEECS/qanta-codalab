@@ -41,12 +41,15 @@ def get_topk(question, docs):
         length[i] = [s - length[i], s]
     #prediction = [bert.predict(question, arr) for arr in arrs]
     prediction = []
-    for arr in tqdm(arrs):
+    for arr in arrs:
         prediction.append(bert.predict(question, arr))
     maxx = -1
     mark = -1
     for i, example in enumerate(prediction):
-        score = example[0][0]["probability"]
+        if len(example) <= 0 or len(example[0]) <= 0:
+            score = 0.
+        else:
+            score = example[0][0]["probability"]
         if score > maxx:
             maxx = score
             mark = i
@@ -79,7 +82,7 @@ def batch_guess_and_buzz(model, questions, idxs, multi) -> List[Tuple[str, bool,
         question_guesses = model.guess(questions, idxs, BUZZ_NUM_GUESSES)
     outputs = []
     assert(len(questions) == len(question_guesses))
-    for i, guesses in enumerate(question_guesses):
+    for i, guesses in tqdm(enumerate(question_guesses)):
         scores = [guess[1] for guess in guesses]
         buzz = scores[0] / sum(scores) >= BUZZ_THRESHOLD
         buzz = buzz and idxs[i] > 1
