@@ -1,3 +1,4 @@
+src/pretrained
 src/predictions.json
 src/scores.json
 src/wiki_lookup.json
@@ -6,7 +7,7 @@ src/full_model.pkl
 data/*
 src/data/*
 models/*
-*.pickle
+*.pickle*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

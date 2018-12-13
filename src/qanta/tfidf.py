@@ -9,31 +9,65 @@ from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
 from flask import Flask, jsonify, request
 import numpy as np
-import nltk
 
 from qanta import util
 from qanta.dataset import QuizBowlDataset
+import nltk
 
 
 MODEL_PATH = 'tfidf.pickle'
 BUZZ_NUM_GUESSES = 5
-BUZZ_THRESHOLD = 0.4
+BUZZ_THRESHOLD = 0.23
 W2V_LENGTH = 300
 W2V_MODEL = 'full_model.pkl'
-W2V_LAMBDA = 0.8
+W2V_LAMBDA = 0.5
 W2V_PER_SENTENCE = False #retrain after modifying this line
 IS_MULTI = True
+IS_BERT = True
+bert = None
+IS_WIKI = False #retrain after modifying this line
+guesser = None
 
+if IS_BERT:
+    import qanta_bert
+    bert = qanta_bert.qanta_bert()
+
+def get_topk(question, docs):
+    arrs = ([guesser.answer_docs[d] for d in docs])
+    length = [len(list(d)) for d in docs]
+    s = 0
+    for i in range(len(length)):
+        s += length[i]
+        length[i] = [s - length[i], s]
+    #prediction = [bert.predict(question, arr) for arr in arrs]
+    prediction = []
+    for arr in tqdm(arrs):
+        prediction.append(bert.predict(question, arr))
+    maxx = -1
+    mark = -1
+    for i, example in enumerate(prediction):
+        score = example[0][0]["probability"]
+        if score > maxx:
+            maxx = score
+            mark = i
+    return mark
 
 def guess_and_buzz(model, question_text, idx, multi) -> Tuple[str, bool, int]:
     if multi:
         guesses = model.guess([question_text], [idx], BUZZ_NUM_GUESSES)[0]
     else:
-        guesses = model.guess([question_text], [idx], 0)[0]
+        guesses = model.guess([question_text], [idx], BUZZ_NUM_GUESSES)[0]
     scores = [guess[1] for guess in guesses]
+    #print(scores[0] / sum(scores))
     buzz = scores[0] / sum(scores) >= BUZZ_THRESHOLD
+    buzz = buzz and idx > 1
     if multi:
-        return [guess[0] for guess in guesses], buzz
+        if not IS_BERT:
+            return [guess[0] for guess in guesses], buzz
+        else:
+            topk = get_topk(question_text, [guess[0] for guess in guesses])
+            buzz = scores[topk] / sum(scores) >= BUZZ_THRESHOLD
+            return guesses[topk][0], buzz
     else:
         return guesses[0][0], buzz
 
@@ -42,16 +76,21 @@ def batch_guess_and_buzz(model, questions, idxs, multi) -> List[Tuple[str, bool,
     if multi:
         question_guesses = model.guess(questions, idxs, BUZZ_NUM_GUESSES)
     else:
-        question_guesses = model.guess(questions, idxs, 0)
+        question_guesses = model.guess(questions, idxs, BUZZ_NUM_GUESSES)
     outputs = []
     assert(len(questions) == len(question_guesses))
     for i, guesses in enumerate(question_guesses):
         scores = [guess[1] for guess in guesses]
-        #if sum(scores) == 0.:
-        #    print(questions[i])
         buzz = scores[0] / sum(scores) >= BUZZ_THRESHOLD
+        buzz = buzz and idxs[i] > 1
+        #print(scores[0] / sum(scores))
         if multi:
-            outputs.append(([guess[0] for guess in guesses], buzz))
+            if not IS_BERT:
+                outputs.append(([guess[0] for guess in guesses], buzz))
+            else:
+                topk = get_topk(questions[i], [guess[0] for guess in guesses])
+                buzz = scores[topk] / sum(scores) >= BUZZ_THRESHOLD
+                outputs.append((guesses[topk][0], buzz))
         else:
             outputs.append((guesses[0][0], buzz))
     return outputs
@@ -63,13 +102,36 @@ class TfidfGuesser:
         self.tfidf_matrix = None
         self.i_to_ans = None
         self.w2v = pickle.load(open(W2V_MODEL, "rb"))
+        self.answer_docs = defaultdict(str)
+        if IS_BERT:
+            with open("wiki_lookup.json", "r") as f:
+                wiki = json.load(f)
+            for k in tqdm(wiki):
+                self.answer_docs[k] += ' ' + wiki[k]["text"]
+
+            '''
+            with open("data/qanta.mapped.2018.04.18.json") as f:
+                dataset = json.load(f)
+                raw_questions = dataset["questions"]
+                GUESSER_TRAIN_FOLD = 'guesstrain'
+                BUZZER_TRAIN_FOLD = 'buzztrain'
+                TRAIN_FOLDS = {GUESSER_TRAIN_FOLD, BUZZER_TRAIN_FOLD}
+                for q in tqdm(raw_questions):
+                    if q['fold'] in TRAIN_FOLDS:
+                        self.answer_docs[q['page']] += ' ' + q['text']
+            '''
 
     def train(self, training_data) -> None:
         questions = training_data[0]
         answers = training_data[1]
         answer_docs = defaultdict(str)
         answer_vecs = defaultdict(lambda: [])
-        for q, ans in zip(questions, answers):
+        if IS_WIKI:
+            with open("wiki_lookup.json", "r") as f:
+                wiki = json.load(f)
+            for k in tqdm(wiki):
+                answer_docs[k] += ' ' + wiki[k]["text"]
+        for q, ans in tqdm(zip(questions, answers)):
             text = ' '.join(q)
             answer_docs[ans] += ' ' + text
             for s in q:
@@ -96,16 +158,20 @@ class TfidfGuesser:
         for ans, doc in tqdm(answer_docs.items()):
             x_array.append(doc)
             y_array.append(ans)
-            vec = np.sum(answer_vecs[ans], axis = 0) / len(answer_vecs[ans])
-            vec = vec / np.linalg.norm(vec)
+            if(len(answer_vecs[ans]) == 0):
+                vec = np.zeros(W2V_LENGTH)
+            else:
+                vec = np.sum(answer_vecs[ans], axis = 0) / len(answer_vecs[ans])
+                vec = vec / np.linalg.norm(vec)
             self.vecs_array.append(vec)
 
         self.vecs_array = np.array(self.vecs_array)
         self.i_to_ans = {i: ans for i, ans in enumerate(y_array)}
         print("Fitting")
         self.tfidf_vectorizer = TfidfVectorizer(
-            ngram_range=(1, 3), min_df=2, max_df=.9
+            ngram_range=(1, 1), min_df=2, max_df=.9
         , stop_words = "english").fit(x_array)
+        print("Transform")
         self.tfidf_matrix = self.tfidf_vectorizer.transform(x_array)
 
     def guess(self, questions: List[str], idxs: Optional[int], max_n_guesses: Optional[int]) -> List[List[Tuple[str, float]]]:
@@ -130,6 +196,10 @@ class TfidfGuesser:
                 temp = temp / np.linalg.norm(temp)
                 vecs_represent.append(temp)
         vecs_represent = np.array(vecs_represent)
+        self.vecs_array = np.array(self.vecs_array)
+        for i in range(len(self.vecs_array)):
+            if(type(self.vecs_array[i]) != np.ndarray):
+                print(self.vecs_array[i])
         vecs_matrix = self.vecs_array.dot(vecs_represent.T).T
         guess_matrix = guess_matrix.toarray() + W2V_LAMBDA * vecs_matrix
         guess_indices = (-guess_matrix).argsort(axis=1)[:, 0:max_n_guesses]
@@ -161,8 +231,11 @@ class TfidfGuesser:
             return guesser
 
 
+
 def create_app(enable_batch=True):
+    global guesser
     tfidf_guesser = TfidfGuesser.load()
+    guesser = tfidf_guesser
     app = Flask(__name__)
 
     @app.route('/api/1.0/quizbowl/status', methods=['GET'])

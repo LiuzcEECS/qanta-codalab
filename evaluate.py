@@ -11,7 +11,6 @@ import logging
 import socket
 import errno
 from tqdm import tqdm
-import nltk
 
 
 
@@ -86,6 +85,7 @@ def get_question_query(qid, question, char_idx, wiki_paragraphs=False):
     for sent_idx, (st, ed) in enumerate(question['tokenizations']):
         if char_idx >= st and char_idx <= ed:
             break
+
     query = {
             'question_idx': qid,
             'sent_index': sent_idx,
@@ -105,26 +105,10 @@ def get_answer_single(url, questions, char_step_size, wiki_paragraphs=False):
     for question_idx, q in enumerate(tqdm(questions)):
         elog.info(f'Running question_idx={question_idx} qnum={q["qanta_id"]}')
         answers.append([])
-        
-        '''
         # get an answer every K characters
         for char_idx in range(1, len(q['text']) + char_step_size,
                               char_step_size):
             query = get_question_query(question_idx, q, char_idx, wiki_paragraphs)
-            resp = requests.post(url, json=query).json()
-            query.update(resp)
-            answers[-1].append(query)
-        '''
-        length_array = []
-        text = ""
-        char_idx = 0
-        for s in nltk.sent_tokenize(q['text']):
-            char_idx += len(s)
-            text += s
-            length_array.append(char_idx)
-        q['text'] = text
-        for i in range(len(length_array)):
-            query = get_question_query(question_idx, q, length_array[i], i)
             resp = requests.post(url, json=query).json()
             query.update(resp)
             answers[-1].append(query)
@@ -135,57 +119,23 @@ def get_answer_batch(url, questions, char_step_size, batch_size, wiki_paragraphs
     elog.info('Collecting responses to questions in batches', batch_size)
     answers = []
     batch_ids = list(range(0, len(questions), batch_size))
-    for batch_idx in tqdm(batch_ids):
+    for batch_idx in (batch_ids):
         batch_ed = min(len(questions), batch_idx + batch_size)
         qs = questions[batch_idx: batch_ed]
         max_len = max(len(q['text']) for q in qs)
         qids = list(range(batch_idx, batch_ed))
         answers += [[] for _ in qs]
-
-        '''
-        batch_ids = list(range(0, len(questions), batch_size))
-        for batch_idx in tqdm(batch_ids):
-            batch_ed = min(len(questions), batch_idx + batch_size)
-            qs = questions[batch_idx: batch_ed]
-            max_len = max(len(q['text']) for q in qs)
-            qids = list(range(batch_idx, batch_ed))
-            answers += [[] for _ in qs]
-            for char_idx in range(1, max_len + char_step_size, char_step_size):
-                query = {'questions': []}
-                for i, q in enumerate(qs):
-                    query['questions'].append(
-                        get_question_query(qids[i], q, char_idx, wiki_paragraphs))
-                resp = requests.post(url, json=query).json()
-                for i, r in enumerate(resp):
-                    q = query['questions'][i]
-                    q.update(r)
-                    answers[qids[i]].append(q)
-        '''
-        query = {'questions': []}
-        length_array = []
-        max_sentences = 0
-        for i, q in enumerate(qs):
-            length_array.append([])
-            char_idx = 0
-            text = ""
-            cnt = 0
-            for s in nltk.sent_tokenize(q['text']):
-                char_idx += len(s)
-                text += s
-                length_array[-1].append(char_idx)
-            qs[i]['text'] = text
-            max_sentences = max(max_sentences, len(length_array[-1]))
-        for idx in range(max_sentences):
+        #for char_idx in range(1, max_len + char_step_size, char_step_size):
+        for char_idx in range(1, max_len + char_step_size, char_step_size)[-1:]:
             query = {'questions': []}
             for i, q in enumerate(qs):
-                if idx < len(length_array[i]):
-                    query['questions'].append(
-                        get_question_query(qids[i], q, length_array[i][idx], idx))
+                query['questions'].append(
+                    get_question_query(qids[i], q, char_idx, wiki_paragraphs))
             resp = requests.post(url, json=query).json()
             for i, r in enumerate(resp):
                 q = query['questions'][i]
                 q.update(r)
-                answers[q['question_idx']].append(q)
+                answers[qids[i]].append(q)
     return answers
 
 
@@ -250,7 +200,6 @@ def evaluate(input_dir, output_dir, score_dir, char_step_size, hostname,
         ew = []
         ew_opt = []
         for question_idx, guesses in enumerate(answers):
-            print(len(guesses))
             question = questions[question_idx]
             answer = question['page']
             first_guess = None
@@ -258,12 +207,8 @@ def evaluate(input_dir, output_dir, score_dir, char_step_size, hostname,
                 if g['sent_index'] == 1:
                     first_guess = g['guess']
                     break
-            if(type(first_guess) == list):
-                first_acc.append(answer in first_guess)
-                end_acc.append(answer in guesses[-1]['guess'])
-            else:
-                first_acc.append(first_guess == answer)
-                end_acc.append(guesses[-1]['guess'] == answer)
+            first_acc.append(first_guess == answer)
+            end_acc.append(guesses[-1]['guess'] == answer)
             ew.append(curve_score.score(guesses, question))
             ew_opt.append(curve_score.score_optimal(guesses, question))
         eval_out = {
