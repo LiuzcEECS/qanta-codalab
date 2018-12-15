@@ -204,7 +204,6 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
     s = 0
     cnt = 0
 
-
     for (doc_span_index, doc_span) in enumerate(doc_spans):
         tokens = []
         token_to_orig_map = {}
@@ -228,9 +227,10 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
             token_is_max_context[len(tokens)] = is_max_context
             tokens.append(all_doc_tokens[split_token_index])
             segment_ids.append(1)
-            if doc_span.start >= docs_length[now]:
+            #print(doc_span, docs_length, now)
+            if now < len(docs_length) and doc_span.start + i >= docs_length[now]:
                 now += 1
-                docs_token_length.append(s + len(tokens))
+                docs_token_length.append(s + len(tokens) - 1)
         tokens.append("[SEP]")
         segment_ids.append(1)
 
@@ -291,9 +291,11 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
                 end_position=end_position))
         unique_id += 1
         s += len(tokens)
-
         #print(tokens)
     #print("Docs length:", docs_token_length)
+    while now < len(docs_length):
+        docs_token_length.append(s)
+        now += 1
 
     return features, docs_token_length
 
@@ -514,6 +516,7 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
 
         all_nbest_json[example_index] = nbest_json
         s += len(feature.tokens)
+        #print(feature.tokens)
     return all_nbest_json
 
 def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
@@ -717,6 +720,9 @@ class qanta_bert:
                 max_query_length=self.max_query_length,
                 is_training=False)
 
+            #print(docs_token_length)
+            assert(len(docs_token_length) == len(contexts))
+
             logger.info("***** Running predictions *****")
             logger.info("  Num orig examples = %d", 1)
             logger.info("  Num split examples = %d", len(eval_features))
@@ -756,5 +762,7 @@ class qanta_bert:
 if __name__ == "__main__":
     reader = qanta_bert()
     ans = reader.predict(question = "this guy is batman", contexts = ["Bruce is batman", "Clark is superman"])
-    print(ans[0][0]["doc_index"])
+    #print(ans[0])
+    print(ans[0][0])
+    #print(ans[0][0]["doc_index"])
 
