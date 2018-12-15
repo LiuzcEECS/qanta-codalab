@@ -99,7 +99,6 @@ class TfidfGuesser:
             for k in tqdm(wiki):
                 self.answer_docs[k] += ' ' + wiki[k]["text"]
 
-            '''
             with open("data/qanta.mapped.2018.04.18.json") as f:
                 dataset = json.load(f)
                 raw_questions = dataset["questions"]
@@ -109,7 +108,6 @@ class TfidfGuesser:
                 for q in tqdm(raw_questions):
                     if q['fold'] in TRAIN_FOLDS:
                         self.answer_docs[q['page']] += ' ' + q['text']
-            '''
 
     def train(self, training_data) -> None:
         questions = training_data[0]
