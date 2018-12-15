@@ -33,6 +33,7 @@ if IS_BERT:
     bert = qanta_bert.qanta_bert()
 
 def get_topk(question, docs):
+    return 0
     arrs = ([guesser.answer_docs[d] for d in docs])
     length = [len(list(d)) for d in docs]
     s = 0
