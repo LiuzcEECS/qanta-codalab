@@ -40,6 +40,7 @@ def get_topk(question, docs):
     if len(example) <= 0 or len(example[0]) <= 0:
         return 0
     else:
+        print(len(arrs), int(example[0][0]["doc_index"]))
         return int(example[0][0]["doc_index"])
 
 def guess_and_buzz(model, question_text, idx, multi) -> Tuple[str, bool, int]:
