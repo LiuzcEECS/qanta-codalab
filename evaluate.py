@@ -177,7 +177,7 @@ def evaluate(input_dir, output_dir, score_dir, char_step_size, hostname,
 
         with open(input_dir) as f:
             questions = json.load(f)['questions']
-            questions = questions[:100]
+            questions = questions[:50]
 
         if status is not None and status['batch'] is True:
             url = f'http://{hostname}:4861/api/1.0/quizbowl/batch_act'

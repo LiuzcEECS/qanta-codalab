@@ -109,7 +109,7 @@ def read_squad_example(question, contexts):
     '''
 
     def is_whitespace(c):
-        if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 114514:
+        if c == " " or c == "\t" or c == "\r" or c == "\n":
             return True
         return False
 
@@ -172,8 +172,9 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
                 tok_to_orig_index.append(cnt)
                 all_doc_tokens.append(sub_token)
                 token_num += 1
+                all_doc_tokens.append
             cnt += 1
-        docs_length.append(token_num)
+        docs_length.append(cnt)
     example.doc_tokens = [i for l in example.doc_tokens for i in l]
 
 
@@ -190,6 +191,7 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
         "DocSpan", ["start", "length"])
     doc_spans = []
     start_offset = 0
+    #print("All: ", len(all_doc_tokens))
     while start_offset < len(all_doc_tokens):
         length = len(all_doc_tokens) - start_offset
         if length > max_tokens_for_doc:
@@ -199,7 +201,7 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
             break
         start_offset += min(length, doc_stride)
 
-    docs_token_length = []
+    #docs_token_length = []
     now = 0
     s = 0
     cnt = 0
@@ -227,10 +229,9 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
             token_is_max_context[len(tokens)] = is_max_context
             tokens.append(all_doc_tokens[split_token_index])
             segment_ids.append(1)
-            #print(doc_span, docs_length, now)
-            if now < len(docs_length) and doc_span.start + i >= docs_length[now]:
-                now += 1
-                docs_token_length.append(s + len(tokens) - 1)
+            #if now < len(docs_length) and doc_span.start + i >= docs_length[now]:
+            #    now += 1
+            #    docs_token_length.append(doc_span.start + i - 1)
         tokens.append("[SEP]")
         segment_ids.append(1)
 
@@ -291,13 +292,15 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
                 end_position=end_position))
         unique_id += 1
         s += len(tokens)
-        #print(tokens)
-    #print("Docs length:", docs_token_length)
-    while now < len(docs_length):
-        docs_token_length.append(s)
-        now += 1
+    #print(s)
 
-    return features, docs_token_length
+    #print("Docs length:", docs_length)
+    #while now < len(docs_length):
+    #    docs_token_length.append(s)
+    #    now += 1
+    #print("Tokens length:", docs_token_length)
+
+    return features, docs_length
 
 
 def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer,
@@ -380,7 +383,7 @@ RawResult = collections.namedtuple("RawResult",
 
 
 def write_predictions(all_example, all_features, all_results, n_best_size,
-                      max_answer_length, do_lower_case, verbose_logging, docs_token_length):
+                      max_answer_length, do_lower_case, verbose_logging, docs_length):
     """Write final predictions to the json file."""
     #logger.info("Writing predictions to: %s" % (output_prediction_file))
     #logger.info("Writing nbest to: %s" % (output_nbest_file))
@@ -454,18 +457,19 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
             feature = features[pred.feature_index]
 
             tok_tokens = feature.tokens[pred.start_index:(pred.end_index + 1)]
-            k = 0
-            t = 0
-            for i, length in enumerate(docs_token_length):
-                t += length
-                if t >= s + pred.start_index:
-                    k = i
-                    break
+            
 
             orig_doc_start = feature.token_to_orig_map[pred.start_index]
             orig_doc_end = feature.token_to_orig_map[pred.end_index]
+            k = 0
+            for i, length in enumerate(docs_length):
+                if orig_doc_start < length:
+                    k = i
+                    break
+
             orig_tokens = example.doc_tokens[orig_doc_start:(orig_doc_end + 1)]
             tok_text = " ".join(tok_tokens)
+            #print(orig_doc_start, tok_text)
 
             # De-tokenize WordPieces that have been split off.
             tok_text = tok_text.replace(" ##", "")
@@ -486,7 +490,8 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
                     text=final_text,
                     start_logit=pred.start_logit,
                     end_logit=pred.end_logit,
-                    doc_index = k,))
+                    doc_index = k,
+                    ))
 
         # In very rare edge cases we could have no valid predictions. So we
         # just create a nonce prediction in this case to avoid failure.
@@ -710,9 +715,12 @@ class qanta_bert:
     
     def predict(self, question, contexts):
 
+        for i in range(len(contexts)):
+            if i > 0:
+                contexts[i] = "[SEP] " + contexts[i]
         if self.do_predict and (self.local_rank == -1 or torch.distributed.get_rank() == 0):
             eval_example = read_squad_example(question, contexts)
-            eval_features, docs_token_length = convert_example_to_features(
+            eval_features, docs_length = convert_example_to_features(
                 example=eval_example,
                 tokenizer=self.tokenizer,
                 max_seq_length=self.max_seq_length,
@@ -721,7 +729,7 @@ class qanta_bert:
                 is_training=False)
 
             #print(docs_token_length)
-            assert(len(docs_token_length) == len(contexts))
+            assert(len(docs_length) == len(contexts))
 
             logger.info("***** Running predictions *****")
             logger.info("  Num orig examples = %d", 1)
@@ -755,13 +763,13 @@ class qanta_bert:
                                                  end_logits=end_logits))
             text_results = write_predictions(eval_example, eval_features, all_results,
                               self.n_best_size, self.max_answer_length,
-                              self.do_lower_case, self.verbose_logging, docs_token_length)
+                              self.do_lower_case, self.verbose_logging, docs_length)
             return(text_results)
 
 
 if __name__ == "__main__":
     reader = qanta_bert()
-    ans = reader.predict(question = "this guy is batman", contexts = ["Bruce is batman", "Clark is superman"])
+    ans = reader.predict(question = "this guy is batman", contexts = ["Bruce is batman.", "Clark is superman."])
     #print(ans[0])
     print(ans[0][0])
     #print(ans[0][0]["doc_index"])
