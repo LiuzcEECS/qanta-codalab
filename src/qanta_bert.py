@@ -101,7 +101,7 @@ class InputFeatures(object):
         self.end_position = end_position
 
 
-def read_squad_example(question, context):
+def read_squad_example(question, contexts):
     """Read a SQuAD json file into a list of SquadExample."""
     '''
     with open(input_file, "r") as reader:
@@ -109,24 +109,28 @@ def read_squad_example(question, context):
     '''
 
     def is_whitespace(c):
-        if c == " " or c == "\t" or c == "\r" or c == "\n":
+        if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 114514:
             return True
         return False
 
-    paragraph_text = context
-    doc_tokens = []
-    char_to_word_offset = []
+    paragraph_texts = contexts
     prev_is_whitespace = True
-    for c in paragraph_text:
-        if is_whitespace(c):
-            prev_is_whitespace = True
-        else:
-            if prev_is_whitespace:
-                doc_tokens.append(c)
+    doc_tokens = []
+    for paragraph_text in paragraph_texts:
+        doc_token = []
+        #char_to_word_offset = []
+        prev_is_whitespace = True
+        for c in paragraph_text:
+            if is_whitespace(c):
+                prev_is_whitespace = True
             else:
-                doc_tokens[-1] += c
-            prev_is_whitespace = False
-        char_to_word_offset.append(len(doc_tokens) - 1)
+                if prev_is_whitespace:
+                    doc_token.append(c)
+                else:
+                    doc_token[-1] += c
+                prev_is_whitespace = False
+        #    char_to_word_offset.append(len(doc_token) - 1)
+        doc_tokens.append(doc_token)
 
     question_text = question
     start_position = None
@@ -157,26 +161,24 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
         query_tokens = query_tokens[0:max_query_length]
 
     tok_to_orig_index = []
-    orig_to_tok_index = []
     all_doc_tokens = []
-    for (i, token) in enumerate(example.doc_tokens):
-        orig_to_tok_index.append(len(all_doc_tokens))
-        sub_tokens = tokenizer.tokenize(token)
-        for sub_token in sub_tokens:
-            tok_to_orig_index.append(i)
-            all_doc_tokens.append(sub_token)
+    docs_length = []
+    cnt = 0
+    token_num = 0
+    for doc_tokens in example.doc_tokens:
+        for token in doc_tokens:
+            sub_tokens = tokenizer.tokenize(token)
+            for sub_token in sub_tokens:
+                tok_to_orig_index.append(cnt)
+                all_doc_tokens.append(sub_token)
+                token_num += 1
+            cnt += 1
+        docs_length.append(token_num)
+    example.doc_tokens = [i for l in example.doc_tokens for i in l]
+
 
     tok_start_position = None
     tok_end_position = None
-    if is_training:
-        tok_start_position = orig_to_tok_index[example.start_position]
-        if example.end_position < len(example.doc_tokens) - 1:
-            tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
-        else:
-            tok_end_position = len(all_doc_tokens) - 1
-        (tok_start_position, tok_end_position) = _improve_answer_span(
-            all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
-            example.orig_answer_text)
 
     # The -3 accounts for [CLS], [SEP] and [SEP]
     max_tokens_for_doc = max_seq_length - len(query_tokens) - 3
@@ -197,6 +199,12 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
             break
         start_offset += min(length, doc_stride)
 
+    docs_token_length = []
+    now = 0
+    s = 0
+    cnt = 0
+
+
     for (doc_span_index, doc_span) in enumerate(doc_spans):
         tokens = []
         token_to_orig_map = {}
@@ -209,6 +217,7 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
             segment_ids.append(0)
         tokens.append("[SEP]")
         segment_ids.append(0)
+        
 
         for i in range(doc_span.length):
             split_token_index = doc_span.start + i
@@ -219,6 +228,9 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
             token_is_max_context[len(tokens)] = is_max_context
             tokens.append(all_doc_tokens[split_token_index])
             segment_ids.append(1)
+            if doc_span.start >= docs_length[now]:
+                now += 1
+                docs_token_length.append(s + len(tokens))
         tokens.append("[SEP]")
         segment_ids.append(1)
 
@@ -240,20 +252,7 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
 
         start_position = None
         end_position = None
-        if is_training:
-            # For training, if our document chunk does not contain an annotation
-            # we throw it out, since there is nothing to predict.
-            doc_start = doc_span.start
-            doc_end = doc_span.start + doc_span.length - 1
-            if (example.start_position < doc_start or
-                    example.end_position < doc_start or
-                    example.start_position > doc_end or example.end_position > doc_end):
-                continue
-
-            doc_offset = len(query_tokens) + 2
-            start_position = tok_start_position - doc_start + doc_offset
-            end_position = tok_end_position - doc_start + doc_offset
-
+       
         if example_index < 0:
             logger.info("*** Example ***")
             logger.info("unique_id: %s" % (unique_id))
@@ -291,8 +290,12 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
                 start_position=start_position,
                 end_position=end_position))
         unique_id += 1
+        s += len(tokens)
 
-    return features
+        #print(tokens)
+    #print("Docs length:", docs_token_length)
+
+    return features, docs_token_length
 
 
 def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer,
@@ -375,7 +378,7 @@ RawResult = collections.namedtuple("RawResult",
 
 
 def write_predictions(all_example, all_features, all_results, n_best_size,
-                      max_answer_length, do_lower_case, verbose_logging):
+                      max_answer_length, do_lower_case, verbose_logging, docs_token_length):
     """Write final predictions to the json file."""
     #logger.info("Writing predictions to: %s" % (output_prediction_file))
     #logger.info("Writing nbest to: %s" % (output_nbest_file))
@@ -399,6 +402,7 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
     features = example_index_to_features[example_index]
 
     prelim_predictions = []
+    s = 0
     for (feature_index, feature) in enumerate(features):
         result = unique_id_to_result[feature.unique_id]
 
@@ -427,8 +431,8 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
                 prelim_predictions.append(
                     _PrelimPrediction(
                         feature_index=feature_index,
-                        start_index=start_index,
-                        end_index=end_index,
+                        start_index = start_index,
+                        end_index = end_index,
                         start_logit=result.start_logits[start_index],
                         end_logit=result.end_logits[end_index]))
 
@@ -438,7 +442,7 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
             reverse=True)
 
         _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-            "NbestPrediction", ["text", "start_logit", "end_logit", "start_index", "end_index"])
+            "NbestPrediction", ["text", "start_logit", "end_logit", "doc_index"])
 
         seen_predictions = {}
         nbest = []
@@ -448,6 +452,14 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
             feature = features[pred.feature_index]
 
             tok_tokens = feature.tokens[pred.start_index:(pred.end_index + 1)]
+            k = 0
+            t = 0
+            for i, length in enumerate(docs_token_length):
+                t += length
+                if t >= s + pred.start_index:
+                    k = i
+                    break
+
             orig_doc_start = feature.token_to_orig_map[pred.start_index]
             orig_doc_end = feature.token_to_orig_map[pred.end_index]
             orig_tokens = example.doc_tokens[orig_doc_start:(orig_doc_end + 1)]
@@ -472,14 +484,13 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
                     text=final_text,
                     start_logit=pred.start_logit,
                     end_logit=pred.end_logit,
-                    start_index = pred.start_index,
-                    end_index = pred.end_index,))
+                    doc_index = k,))
 
         # In very rare edge cases we could have no valid predictions. So we
         # just create a nonce prediction in this case to avoid failure.
         if not nbest:
             nbest.append(
-                _NbestPrediction(text="[NULL]", start_logit=0.0, end_logit=0.0, start_index = 0, end_index = 0))
+                _NbestPrediction(text="[NULL]", start_logit=0.0, end_logit=0.0, doc_index = 0))
 
         assert len(nbest) >= 1
 
@@ -496,13 +507,13 @@ def write_predictions(all_example, all_features, all_results, n_best_size,
             output["probability"] = probs[i]
             output["start_logit"] = entry.start_logit
             output["end_logit"] = entry.end_logit
-            output["start_index"] = entry.start_index
-            output["end_index"] = entry.end_index
+            output["doc_index"] = entry.doc_index
             nbest_json.append(output)
 
         assert len(nbest_json) >= 1
 
         all_nbest_json[example_index] = nbest_json
+        s += len(feature.tokens)
     return all_nbest_json
 
 def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
@@ -694,11 +705,11 @@ class qanta_bert:
             self.model = torch.nn.DataParallel(self.model)
         self.model.eval()
     
-    def predict(self, question, context):
+    def predict(self, question, contexts):
 
         if self.do_predict and (self.local_rank == -1 or torch.distributed.get_rank() == 0):
-            eval_example = read_squad_example(question, context)
-            eval_features = convert_example_to_features(
+            eval_example = read_squad_example(question, contexts)
+            eval_features, docs_token_length = convert_example_to_features(
                 example=eval_example,
                 tokenizer=self.tokenizer,
                 max_seq_length=self.max_seq_length,
@@ -738,12 +749,12 @@ class qanta_bert:
                                                  end_logits=end_logits))
             text_results = write_predictions(eval_example, eval_features, all_results,
                               self.n_best_size, self.max_answer_length,
-                              self.do_lower_case, self.verbose_logging)
+                              self.do_lower_case, self.verbose_logging, docs_token_length)
             return(text_results)
 
 
 if __name__ == "__main__":
     reader = qanta_bert()
-    ans = reader.predict(question = "this guy is batman", context = "Bruce is batman")
-    print(ans[0][0]["start_index"])
+    ans = reader.predict(question = "this guy is batman", contexts = ["Bruce is batman", "Clark is superman"])
+    print(ans[0][0]["doc_index"])
 

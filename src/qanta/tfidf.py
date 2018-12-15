@@ -33,27 +33,14 @@ if IS_BERT:
     bert = qanta_bert.qanta_bert()
 
 def get_topk(question, docs):
-    arrs = ([guesser.answer_docs[d] for d in docs])
-    length = [len(list(d)) for d in docs]
-    s = 0
-    for i in range(len(length)):
-        s += length[i]
-        length[i] = [s - length[i], s]
-    #prediction = [bert.predict(question, arr) for arr in arrs]
-    prediction = []
-    for arr in arrs:
-        prediction.append(bert.predict(question, arr))
-    maxx = -1
-    mark = -1
-    for i, example in enumerate(prediction):
-        if len(example) <= 0 or len(example[0]) <= 0:
-            score = 0.
-        else:
-            score = example[0][0]["probability"]
-        if score > maxx:
-            maxx = score
-            mark = i
-    return mark
+    arrs = [guesser.answer_docs[d] for d in docs]
+
+    example = bert.predict(question, arrs)
+
+    if len(example) <= 0 or len(example[0]) <= 0:
+        return 0
+    else:
+        return example[0][0]["doc_index"]
 
 def guess_and_buzz(model, question_text, idx, multi) -> Tuple[str, bool, int]:
     if multi:
