@@ -769,8 +769,8 @@ class qanta_bert:
 
 if __name__ == "__main__":
     reader = qanta_bert()
-    ans = reader.predict(question = "this guy is batman", contexts = ["Bruce is batman.", "Clark is superman."])
-    #print(ans[0])
-    print(ans[0][0])
+    ans = reader.predict(question = "this guy is batman", contexts = ["Arthur is Aquaman.", "Bruce is batman.", "Clark is superman."])
+    print(ans[0])
+    #print(ans[0][0])
     #print(ans[0][0]["doc_index"])
 

@@ -34,3 +34,4 @@ WORKDIR /src
 
 ENTRYPOINT [ "/usr/bin/tini", "--" ]
 CMD [ "/bin/bash" ]
+

@@ -1,7 +1,8 @@
 version: '3'
 services:
   qb:
-    image: "docker.io/entilzha/quizbowl:0.1"
+    build: .
+    image: "bert"
     ports:
       - "4861:4861"
     volumes:
@@ -9,7 +10,7 @@ services:
       - ./data/:/src/data
     command: ["bash", "run.sh"]
   eval:
-    image: "docker.io/entilzha/quizbowl:0.1"
+    image: "bert"
     volumes:
       - ./src/:/src
       - ./data/:/src/data
@@ -17,11 +18,12 @@ services:
     command: [
       "python", "/eval/evaluate.py",
       "--curve-pkl", "/eval/curve_pipeline.pkl",
-      "--wait", "5",
+      "--wait", "10",
       "--hostname", "qb",
       "--norun-web",
       "--char_step_size", "60",
-      "data/qanta.dev.paragraphs.2018.04.18.json"
+      "--retrieved_paragraphs_path", "data/qanta.test.paragraphs.2018.04.18.jsonl",
+      "data/qanta.test.2018.04.18.json"
     ]
     depends_on:
       - "qb"

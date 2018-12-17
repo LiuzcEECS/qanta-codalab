@@ -10,3 +10,4 @@ RUN conda env update -f environment.yaml
 RUN mkdir /src
 RUN mkdir /src/data
 WORKDIR /src
+

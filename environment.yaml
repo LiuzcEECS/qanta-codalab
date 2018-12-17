@@ -9,5 +9,10 @@ dependencies:
   - requests
   - click
   - flask
+  - termcolor
+  - regex
+  - tqdm
+  - pexpect==4.2.1
+  - pytorch-pretrained-bert
 channels:
   - pytorch

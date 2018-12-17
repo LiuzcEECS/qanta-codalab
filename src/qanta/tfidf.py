@@ -21,11 +21,9 @@ BUZZ_THRESHOLD = 0.23
 W2V_LENGTH = 300
 W2V_MODEL = 'full_model.pkl'
 W2V_LAMBDA = 0.5
-W2V_PER_SENTENCE = False #retrain after modifying this line
 IS_MULTI = True
 IS_BERT = True
 bert = None
-IS_WIKI = False #retrain after modifying this line
 guesser = None
 
 if IS_BERT:
@@ -114,31 +112,13 @@ class TfidfGuesser:
         answers = training_data[1]
         answer_docs = defaultdict(str)
         answer_vecs = defaultdict(lambda: [])
-        if IS_WIKI:
-            with open("wiki_lookup.json", "r") as f:
-                wiki = json.load(f)
-            for k in tqdm(wiki):
-                answer_docs[k] += ' ' + wiki[k]["text"]
         for q, ans in tqdm(zip(questions, answers)):
             text = ' '.join(q)
             answer_docs[ans] += ' ' + text
             for s in q:
-                if W2V_PER_SENTENCE:
-                    temp = []
-                    for w in nltk.word_tokenize(s):
-                        if w in self.w2v:
-                            temp.append(self.w2v[w])
-                    if not temp:
-                        answer_vecs[ans].append(np.zeros(W2V_LENGTH))
-                    else:
-                        temp = np.sum(temp, axis = 0) / len(temp)
-                        temp = temp / np.linalg.norm(temp)
-                        answer_vecs[ans].append(temp)
-
-                else:
-                    for w in nltk.word_tokenize(s):
-                        if w in self.w2v:
-                            answer_vecs[ans].append(self.w2v[w])
+                for w in nltk.word_tokenize(s):
+                    if w in self.w2v:
+                        answer_vecs[ans].append(self.w2v[w])
 
         x_array = []
         y_array = []

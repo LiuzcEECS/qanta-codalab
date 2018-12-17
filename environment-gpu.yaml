@@ -17,6 +17,7 @@ dependencies:
   - flask
   - click
   - tensorboardx
+  - pytorch-pretrained-bert
   - pip:
     - allennlp==0.7.*
     - overrides
